@@ -2,6 +2,12 @@ import cv2
 import math
 from ultralytics import YOLO
 from deep_sort_realtime.deepsort_tracker import DeepSort
+import time
+
+LOITERING_DISTANCE = 50
+LOITERING_TIME = 10
+
+person_data = {}
 
 # Load YOLO model
 model = YOLO("yolov8s.pt")
@@ -101,6 +107,39 @@ while True:
             center_x,
             center_y
         )
+        current_time = time.time()
+
+        if track_id not in person_data:
+
+            person_data[track_id] = {
+                "start_x": center_x,
+                "start_y": center_y,
+                "start_time": current_time
+            }
+
+        else:
+
+            start_x = person_data[track_id]["start_x"]
+            start_y = person_data[track_id]["start_y"]
+
+            distance = math.sqrt(
+                (center_x - start_x) ** 2 +
+                (center_y - start_y) ** 2
+            )
+
+            elapsed = current_time - person_data[track_id]["start_time"]
+
+            if distance < LOITERING_DISTANCE and elapsed > LOITERING_TIME:
+
+                cv2.putText(
+                    frame,
+                    "LOITERING ALERT",
+                    (x1, y2 + 25),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
+                    2
+                )
 
         cv2.rectangle(
             frame,
