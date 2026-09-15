@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#050811] text-slate-200 font-sans;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Custom sleek scrollbar for surveillance panels */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #070c18;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #172647;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #00e5ff60;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-[#090f1f]/80 backdrop-blur-md border border-[#16223d] shadow-2xl;
+  }
+  
+  .glass-card {
+    @apply bg-[#0d162d]/70 backdrop-blur-sm border border-[#1c2c4d] hover:border-cyan-500/40 transition-all duration-200;
+  }
+
+  .hud-border {
+    position: relative;
+  }
+  .hud-border::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 8px; height: 8px;
+    border-top: 2px solid #00e5ff;
+    border-left: 2px solid #00e5ff;
+  }
+  .hud-border::after {
+    content: '';
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 8px; height: 8px;
+    border-bottom: 2px solid #00e5ff;
+    border-right: 2px solid #00e5ff;
+  }
+
+  .glow-cyan {
+    box-shadow: 0 0 15px rgba(0, 229, 255, 0.35);
+  }
+
+  .glow-red {
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.45);
+  }
+}
+
+/* Dark mode styling for Leaflet Maps */
+.leaflet-container {
+  background-color: #050811 !important;
+  font-family: inherit;
+}
+.dark-tiles .leaflet-tile {
+  filter: brightness(0.7) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+}
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: #0a1124 !important;
+  color: #e2e8f0 !important;
+  border: 1px solid #00e5ff40;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7);
+}
