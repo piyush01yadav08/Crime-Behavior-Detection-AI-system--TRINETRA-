@@ -33,9 +33,52 @@ export function CameraModal({
             <span>•</span>
             <span>Codec: {camera.codec}</span>
           </div>
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Close Feed
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const popWin = window.open(
+                  "",
+                  `TRINETRA_${camera.id}`,
+                  "width=960,height=600,menubar=no,toolbar=no,location=no,status=no"
+                );
+                if (popWin) {
+                  popWin.document.title = `TRINETRA LIVE POP-OUT - ${camera.name}`;
+                  popWin.document.body.style.margin = "0";
+                  popWin.document.body.style.background = "#050811";
+                  popWin.document.body.style.color = "#ffffff";
+                  popWin.document.body.style.fontFamily = "monospace";
+                  popWin.document.body.style.display = "flex";
+                  popWin.document.body.style.flexDirection = "column";
+                  popWin.document.body.style.alignItems = "center";
+                  popWin.document.body.style.justifyContent = "center";
+                  popWin.document.body.style.height = "100vh";
+                  popWin.document.body.innerHTML = `
+                    <div style="width:100%;max-width:900px;padding:20px;box-sizing:border-box;">
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #1e293b;padding-bottom:8px;">
+                        <div>
+                          <h2 style="margin:0;font-size:16px;color:#00e5ff;">${camera.name} [${camera.id}]</h2>
+                          <p style="margin:4px 0 0 0;font-size:11px;color:#94a3b8;">${camera.location} • ${camera.resolution} @ ${camera.fps} FPS</p>
+                        </div>
+                        <span style="background:#ef4444;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;">● LIVE FEED</span>
+                      </div>
+                      <div style="background:#020617;border:1px solid #00e5ff50;border-radius:12px;height:480px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+                        <div style="font-size:18px;color:#38bdf8;margin-bottom:8px;">SURVEILLANCE STREAM ACTIVE</div>
+                        <div style="font-size:12px;color:#64748b;">Bitrate: ${camera.bitrate} • Codec: ${camera.codec} • Uptime: ${camera.uptime}</div>
+                        <div style="position:absolute;bottom:12px;left:16px;font-size:11px;color:#00e5ff;">TRINETRA AI SYSTEM // DEEPSORT TRACKING</div>
+                      </div>
+                    </div>
+                  `;
+                }
+              }}
+            >
+              Pop-out Window ↗
+            </Button>
+            <Button variant="secondary" size="sm" onClick={onClose}>
+              Close Feed
+            </Button>
+          </div>
         </div>
       }
     >

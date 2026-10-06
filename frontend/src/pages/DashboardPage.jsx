@@ -84,6 +84,7 @@ export function DashboardPage() {
               cameras={cameras}
               selectedCamera={selectedCamera}
               onSelectCamera={(cam) => setSelectedCamera(cam)}
+              onPopoutCamera={(cam) => handleOpenFullscreen(cam)}
             />
           ) : (
             <CameraGrid
