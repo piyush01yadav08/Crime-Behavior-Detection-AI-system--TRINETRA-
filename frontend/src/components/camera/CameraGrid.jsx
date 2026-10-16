@@ -23,6 +23,10 @@ export function CameraGrid({
           <div
             key={cam.id}
             onClick={() => onSelectCamera(cam)}
+            onDoubleClick={() => {
+              onSelectCamera(cam);
+              onOpenFocusModal && onOpenFocusModal(cam);
+            }}
             className={`bg-[#070c18] rounded-xl overflow-hidden cursor-pointer transition-all duration-150 relative ${
               isSelected
                 ? "ring-1.5 ring-cyan-400"

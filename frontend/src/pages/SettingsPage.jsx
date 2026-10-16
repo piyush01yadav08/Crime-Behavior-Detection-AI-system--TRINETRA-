@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Tabs from "../components/ui/Tabs";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
+import { cameraService } from "../services/cameraService";
+import { api } from "../services/api";
 import {
   User,
   Video,
@@ -13,11 +15,95 @@ import {
   CheckCircle,
   Cpu,
   RefreshCw,
+  PlusCircle,
+  Camera,
+  MapPin,
+  Tag,
+  Layers,
+  Database,
 } from "lucide-react";
 
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState("profile");
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [cameraAddedSuccess, setCameraAddedSuccess] = useState(false);
+  const [cameraList, setCameraList] = useState([]);
+  const [dbStatus, setDbStatus] = useState(null);
+
+  // New Camera Form State
+  const [newCamera, setNewCamera] = useState({
+    name: "",
+    camNumber: "",
+    location: "",
+    type: "cctv", // "cctv", "webcam", "ptz", "thermal", "dome"
+    zone: "Default Perimeter",
+    previewType: "traffic",
+  });
+
+  useEffect(() => {
+    cameraService.getAll().then((list) => {
+      if (list) setCameraList(list);
+    });
+    const unsub = cameraService.subscribe((list) => setCameraList(list));
+
+    // Load persisted settings from database
+    api.get("/settings/").then((saved) => {
+      if (saved && typeof saved === "object") {
+        if (saved.profile) setProfile((p) => ({ ...p, ...saved.profile }));
+        if (saved.cameraSettings) setCameraSettings((c) => ({ ...c, ...saved.cameraSettings }));
+        if (saved.alertPreferences) setAlertPreferences((a) => ({ ...a, ...saved.alertPreferences }));
+        if (saved.notifications) setNotifications((n) => ({ ...n, ...saved.notifications }));
+        if (saved.systemSettings) setSystemSettings((s) => ({ ...s, ...saved.systemSettings }));
+        if (saved.appearance) setAppearance((ap) => ({ ...ap, ...saved.appearance }));
+      }
+    }).catch(() => {});
+
+    // Fetch database connection health
+    api.get("/db/status").then((status) => {
+      if (status) setDbStatus(status);
+    }).catch(() => {});
+
+    return unsub;
+  }, []);
+
+
+  const handleAddCamera = async (e) => {
+    e.preventDefault();
+    if (!newCamera.camNumber.trim() && !newCamera.location.trim()) return;
+
+    const formattedCamId = newCamera.camNumber.trim().toUpperCase().startsWith("CAM-")
+      ? newCamera.camNumber.trim().toUpperCase()
+      : `CAM-${newCamera.camNumber.trim().padStart(2, "0")}`;
+
+    const newCamPayload = {
+      id: formattedCamId,
+      name: newCamera.name.trim() || `Cam ${newCamera.camNumber.trim()} - ${newCamera.location.trim()}`,
+      shortName: newCamera.name.trim() || newCamera.location.trim(),
+      location: newCamera.location.trim() || "Perimeter Corridor",
+      type: newCamera.type === "webcam" ? "Direct Webcam Input" : newCamera.type === "cctv" ? "High-Speed CCTV Fixed" : newCamera.type.toUpperCase(),
+      cameraCategory: newCamera.type, // "cctv", "webcam", etc.
+      zone: newCamera.zone || "Perimeter",
+      previewType: newCamera.previewType || (newCamera.type === "cctv" ? "gate" : "hallway"),
+      status: "NORMAL",
+      isLive: true,
+      fps: 30,
+      resolution: "1920 x 1080",
+    };
+
+    await cameraService.addCamera(newCamPayload);
+    setCameraAddedSuccess(true);
+    setTimeout(() => setCameraAddedSuccess(false), 3000);
+
+    // Reset form
+    setNewCamera({
+      name: "",
+      camNumber: "",
+      location: "",
+      type: "cctv",
+      zone: "Default Perimeter",
+      previewType: "traffic",
+    });
+  };
 
   // Settings local state
   const [profile, setProfile] = useState({
@@ -66,11 +152,24 @@ export function SettingsPage() {
     highContrastMode: false,
   });
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
+    try {
+      await Promise.all([
+        api.post("/settings/profile", profile),
+        api.post("/settings/cameraSettings", cameraSettings),
+        api.post("/settings/alertPreferences", alertPreferences),
+        api.post("/settings/notifications", notifications),
+        api.post("/settings/systemSettings", systemSettings),
+        api.post("/settings/appearance", appearance),
+      ]);
+    } catch (err) {
+      console.warn("Failed to persist settings to database:", err);
+    }
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
   };
+
 
   const tabs = [
     { id: "profile", label: "Profile", icon: <User className="w-3.5 h-3.5" /> },
@@ -170,6 +269,7 @@ export function SettingsPage() {
               Camera Stream & Video Processing Options
             </h3>
 
+            {/* Existing Camera Options */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-slate-400 font-medium mb-1">Default Ingestion Resolution</label>
@@ -209,6 +309,158 @@ export function SettingsPage() {
                   onChange={(e) => setCameraSettings({ ...cameraSettings, motionSensitivity: Number(e.target.value) })}
                   className="w-full accent-cyan-400 cursor-pointer"
                 />
+              </div>
+            </div>
+
+            {/* ADD NEW CAMERA SECTION */}
+            <div className="pt-6 border-t border-[#142340] space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <PlusCircle className="w-4 h-4 text-cyan-400" />
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                    Add New Surveillance Camera
+                  </h4>
+                </div>
+                {cameraAddedSuccess && (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 animate-in fade-in">
+                    <CheckCircle className="w-3 h-3" />
+                    New Camera Added to System
+                  </span>
+                )}
+              </div>
+
+              <div className="p-4 rounded-xl bg-[#070d1a] border border-cyan-500/20 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1 flex items-center gap-1">
+                      <Tag className="w-3 h-3 text-cyan-400" />
+                      <span>Camera Number / ID *</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 15 or CAM-15"
+                      value={newCamera.camNumber}
+                      onChange={(e) => setNewCamera({ ...newCamera, camNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-[#091122] border border-[#172748] text-white focus:outline-none focus:border-cyan-400 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1 flex items-center gap-1">
+                      <MapPin className="w-3 h-3 text-cyan-400" />
+                      <span>Camera Location *</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. North Gate Parking"
+                      value={newCamera.location}
+                      onChange={(e) => setNewCamera({ ...newCamera, location: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-[#091122] border border-[#172748] text-white focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1 flex items-center gap-1">
+                      <Camera className="w-3 h-3 text-cyan-400" />
+                      <span>Camera Type *</span>
+                    </label>
+                    <select
+                      value={newCamera.type}
+                      onChange={(e) => setNewCamera({ ...newCamera, type: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-[#091122] border border-[#172748] text-white focus:outline-none focus:border-cyan-400"
+                    >
+                      <option value="cctv">CCTV (Fixed IP / RTSP)</option>
+                      <option value="webcam">Webcam (USB / DirectShow)</option>
+                      <option value="ptz">PTZ High-Speed Optical</option>
+                      <option value="thermal">Thermal IR Surveillance</option>
+                      <option value="dome">Indoor 360° Dome</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 font-medium mb-1">Custom Camera Name (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Cam 15 - North Parking"
+                      value={newCamera.name}
+                      onChange={(e) => setNewCamera({ ...newCamera, name: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-[#091122] border border-[#172748] text-white focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-medium mb-1">Zone / Sector</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Sector 7 Perimeter"
+                      value={newCamera.zone}
+                      onChange={(e) => setNewCamera({ ...newCamera, zone: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-[#091122] border border-[#172748] text-white focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end pt-1">
+                  <Button
+                    type="button"
+                    onClick={handleAddCamera}
+                    variant="primary"
+                    size="sm"
+                    icon={<PlusCircle className="w-3.5 h-3.5" />}
+                  >
+                    Add Camera Feed
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* REGISTERED CAMERAS DIRECTORY */}
+            <div className="pt-4 border-t border-[#142340] space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-300">
+                  Registered Camera Nodes ({cameraList.length})
+                </span>
+                <span className="text-[10px] font-mono text-cyan-400">
+                  {cameraList.filter((c) => c.status !== "OFFLINE").length} Active Online
+                </span>
+              </div>
+
+              <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
+                {cameraList.slice(0, 15).map((cam) => (
+                  <div
+                    key={cam.id}
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-[#070c18] border border-slate-800/80 text-[11px]"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          cam.status === "ALERT"
+                            ? "bg-red-400 animate-pulse"
+                            : cam.status === "WARNING"
+                            ? "bg-amber-400"
+                            : cam.status === "OFFLINE"
+                            ? "bg-slate-500"
+                            : "bg-emerald-400"
+                        }`}
+                      />
+                      <span className="font-mono font-bold text-white">{cam.id}</span>
+                      <span className="text-slate-300">{cam.name || cam.shortName}</span>
+                      <span className="text-slate-500">•</span>
+                      <span className="text-slate-400">{cam.location}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded bg-black/50 text-[10px] font-mono text-cyan-300 border border-white/10">
+                        {cam.type || "CCTV"}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        {cam.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -335,6 +587,52 @@ export function SettingsPage() {
                   className="w-full px-3 py-2 rounded-xl bg-[#060a14] border border-[#142035] text-cyan-300 font-mono"
                 />
               </div>
+            </div>
+
+            {/* Database Connection & Persistence Telemetry */}
+            <div className="pt-4 border-t border-[#142340] space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-cyan-400" />
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                    Database Persistence & Telemetry Engine
+                  </h4>
+                </div>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                    dbStatus?.connected
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                      : "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                  }`}
+                >
+                  {dbStatus?.connected ? `ONLINE (${dbStatus.dialect?.toUpperCase()})` : "CONNECTING..."}
+                </span>
+              </div>
+
+              {dbStatus && dbStatus.connected && (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 p-3 rounded-xl bg-[#070d1c] border border-[#142546] font-mono">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">CAMERAS</span>
+                    <span className="text-sm font-bold text-cyan-300">{dbStatus.tables?.cameras ?? 0}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">ALERTS</span>
+                    <span className="text-sm font-bold text-orange-400">{dbStatus.tables?.alerts ?? 0}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">SUBJECTS</span>
+                    <span className="text-sm font-bold text-white">{dbStatus.tables?.tracked_persons ?? 0}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">AUDIT LOGS</span>
+                    <span className="text-sm font-bold text-emerald-300">{dbStatus.tables?.activity_logs ?? 0}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">DB LATENCY</span>
+                    <span className="text-sm font-bold text-cyan-400">{dbStatus.latencyMs} ms</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

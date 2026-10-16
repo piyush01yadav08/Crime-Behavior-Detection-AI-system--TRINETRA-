@@ -3,6 +3,7 @@ import assert from "node:assert";
 import { cameraService } from "../services/cameraService.js";
 import { alertService } from "../services/alertService.js";
 import { analyticsService } from "../services/analyticsService.js";
+import { wsService } from "../services/websocketService.js";
 
 describe("Frontend Service Layers", () => {
   test("cameraService.getAll returns cameras list", async () => {
@@ -47,4 +48,46 @@ describe("Frontend Service Layers", () => {
     assert(typeof summary.totalAlerts === "number");
     assert(typeof summary.criticalCount === "number");
   });
+
+  test("wsService subscription, unsubscription, and event emission", () => {
+    let received = null;
+    const unsubscribe = wsService.subscribe("custom_test_event", (data) => {
+      received = data;
+    });
+
+    wsService.emit("custom_test_event", { testKey: "testValue" });
+    assert.deepStrictEqual(received, { testKey: "testValue" });
+
+    // Test unsubscription
+    unsubscribe();
+    received = null;
+    wsService.emit("custom_test_event", { testKey: "shouldNotReceive" });
+    assert.strictEqual(received, null);
+  });
+
+  test("alertService dynamically ingests real-time new_alert from wsService", async () => {
+    const wsAlert = {
+      id: "TR-WS-9999",
+      camera: "CAM-01",
+      location: "Main Gate",
+      behavior: "Unidentified Loitering Object",
+      severity: "CRITICAL",
+      status: "NEW",
+      timestamp: new Date().toISOString(),
+    };
+
+    let notifiedList = null;
+    const unsubAlert = alertService.subscribe((alerts) => {
+      notifiedList = alerts;
+    });
+
+    wsService.emit("new_alert", wsAlert);
+
+    const found = notifiedList?.find((a) => a.id === "TR-WS-9999");
+    assert(found !== undefined, "Alert pushed via WebSocket should be ingested into alertService");
+    assert.strictEqual(found.behavior, "Unidentified Loitering Object");
+
+    unsubAlert();
+  });
 });
+

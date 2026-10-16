@@ -1,1 +1,27 @@
-ÿþ
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Local Environment Variables & Secrets
+.env
+
+# Local Databases & Logs
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Node dependencies & builds
+node_modules/
+frontend/node_modules/
+frontend/dist/

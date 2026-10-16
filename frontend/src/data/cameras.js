@@ -351,3 +351,11 @@ export const CAMERAS_DATA = [
     previewType: "rooftop"
   }
 ];
+
+// Ensure top-level lat/lng are accessible for map layers and integrity tests
+CAMERAS_DATA.forEach((cam) => {
+  if (cam.coordinates) {
+    cam.lat = cam.coordinates.lat;
+    cam.lng = cam.coordinates.lng;
+  }
+});

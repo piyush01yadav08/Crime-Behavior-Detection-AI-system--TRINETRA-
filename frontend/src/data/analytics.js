@@ -74,3 +74,12 @@ export const LOCATION_DISTRIBUTION = [
   { location: "Central Dining & Public Areas", incidents: 34 },
   { location: "Parking Structures", incidents: 25 }
 ];
+
+export const ANALYTICS_DATA = {
+  metrics: ANALYTICS_METRICS,
+  hourlyData: ALERTS_OVER_TIME,
+  behaviors: BEHAVIOR_DISTRIBUTION,
+  riskLevels: RISK_LEVEL_DISTRIBUTION,
+  cameras: CAMERA_INCIDENTS,
+  locations: LOCATION_DISTRIBUTION
+};

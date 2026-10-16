@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { CAMERAS_DATA } from "../data/cameras";
+import { cameraService } from "../services/cameraService";
 import SurveillanceMap from "../components/map/SurveillanceMap";
 import CameraStreamView from "../components/camera/CameraStreamView";
 import Badge from "../components/ui/Badge";
@@ -18,8 +19,19 @@ import {
 } from "lucide-react";
 
 export function MapViewPage() {
-  const [cameras] = useState(CAMERAS_DATA);
+  const [cameras, setCameras] = useState(CAMERAS_DATA);
   const [selectedCamera, setSelectedCamera] = useState(CAMERAS_DATA[0]);
+
+  useEffect(() => {
+    cameraService.getAll().then((list) => {
+      if (Array.isArray(list) && list.length > 0) {
+        setCameras(list);
+        if (!selectedCamera) setSelectedCamera(list[0]);
+      }
+    });
+    const unsub = cameraService.subscribe((updated) => setCameras(updated));
+    return unsub;
+  }, []);
 
   const totalCameras = cameras.length;
   const onlineCameras = cameras.filter((c) => c.status !== "OFFLINE").length;

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { MousePointer, RotateCcw, Maximize2 } from "lucide-react";
+import { streamService } from "../../services/streamService";
 
 // 40 Surveillance screens partitioned into 5 latitude rings covering the sphere
 // Each ring's theta directly touches adjacent rings (zero vertical gaps)
@@ -109,6 +110,7 @@ export function LiveSphere({
   const cameraMeshesRef = useRef([]);
   const canvasTexturesRef = useRef([]);
   const animFrameIdRef = useRef(null);
+  const liveStreamImgRef = useRef(null);
 
   const onSelectCameraRef = useRef(onSelectCamera);
   const onPopoutCameraRef = useRef(onPopoutCamera);
@@ -118,157 +120,214 @@ export function LiveSphere({
     onPopoutCameraRef.current = onPopoutCamera;
   }, [onSelectCamera, onPopoutCamera]);
 
-  // Helper: Fast dynamic CCTV feed canvas rendering
+  // Connect live stream image for the 3D sphere screens via an attached image element
+  useEffect(() => {
+    let img = document.getElementById("trinetra-sphere-stream-source");
+    if (!img) {
+      img = document.createElement("img");
+      img.id = "trinetra-sphere-stream-source";
+      img.crossOrigin = "anonymous";
+      img.style.position = "fixed";
+      img.style.left = "-9999px";
+      img.style.top = "-9999px";
+      img.style.width = "1px";
+      img.style.height = "1px";
+      img.style.opacity = "0";
+      img.style.pointerEvents = "none";
+      document.body.appendChild(img);
+    }
+    img.src = streamService.getLiveStreamUrl();
+    liveStreamImgRef.current = img;
+
+    return () => {
+      if (img && img.parentNode) {
+        img.src = "";
+        img.parentNode.removeChild(img);
+      }
+      liveStreamImgRef.current = null;
+    };
+  }, []);
+
+  // Helper: High-Definition dynamic CCTV feed canvas rendering (640x360 HD)
   const drawCCTVFeed = (ctx, camInfo, tick, isSelected, isHovered) => {
-    const w = 320;
-    const h = 200;
+    const w = 640;
+    const h = 360;
 
-    // Dark security background
-    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
-    if (camInfo.previewType === "traffic") {
-      bgGrad.addColorStop(0, "#08101e");
-      bgGrad.addColorStop(0.6, "#111d33");
-      bgGrad.addColorStop(1, "#09101f");
-    } else if (camInfo.previewType === "warehouse" || camInfo.previewType === "backyard") {
-      bgGrad.addColorStop(0, "#050912");
-      bgGrad.addColorStop(0.6, "#0c1527");
-      bgGrad.addColorStop(1, "#060b17");
-    } else {
-      bgGrad.addColorStop(0, "#070d1a");
-      bgGrad.addColorStop(0.6, "#0f1a30");
-      bgGrad.addColorStop(1, "#080e1b");
-    }
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, w, h);
+    let drewRealFrame = false;
+    // Exactly one camera is physically connected to the AI backend (CAM-02).
+    // All other cameras have independent unique simulated CCTV surveillance scenes.
+    const isPhysicalLiveCam = camInfo.id === "CAM-02";
 
-    // Dynamic video simulation elements
-    if (camInfo.previewType === "traffic") {
-      // Perspective Highway Lanes
-      ctx.fillStyle = "#0d1524";
-      ctx.beginPath();
-      ctx.moveTo(125, 80);
-      ctx.lineTo(195, 80);
-      ctx.lineTo(300, h);
-      ctx.lineTo(20, h);
-      ctx.closePath();
-      ctx.fill();
-
-      // Yellow Center Dash
-      ctx.strokeStyle = "#f59e0b";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([8, 8]);
-      ctx.beginPath();
-      ctx.moveTo(160, 80);
-      ctx.lineTo(160, h);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Vehicle with bounding box
-      const carOffset = Math.sin(tick * 0.05 + (camInfo.index || 0)) * 14;
-      const carX = 142 + carOffset;
-      const carY = 115;
-      ctx.fillStyle = "#94a3b8";
-      ctx.fillRect(carX, carY, 36, 20);
-      ctx.fillStyle = "#0f172a";
-      ctx.fillRect(carX + 5, carY + 4, 26, 8);
-
-      // Cyan AI Detection Box
-      ctx.strokeStyle = "#00e5ff";
-      ctx.lineWidth = 1.2;
-      ctx.strokeRect(carX - 3, carY - 3, 42, 26);
-      ctx.fillStyle = "#00e5ff";
-      ctx.font = "bold 9px monospace";
-      ctx.fillText("VEHICLE", carX - 2, carY - 6);
-    } else {
-      // Facility perspectives
-      ctx.strokeStyle = "#1e293b";
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(0, 100);
-      ctx.lineTo(w, 100);
-      ctx.stroke();
-
-      // Person subject
-      const pedX = 145 + Math.sin(tick * 0.04 + (camInfo.index || 0)) * 20;
-      const pedY = 95;
-      ctx.fillStyle = "#94a3b8";
-      ctx.beginPath();
-      ctx.arc(pedX, pedY, 4.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillRect(pedX - 3, pedY + 5, 6, 24);
-
-      // Detection box
-      ctx.strokeStyle = isSelected ? "#00e5ff" : "#38bdf8";
-      ctx.lineWidth = 1.2;
-      ctx.strokeRect(pedX - 8, pedY - 4, 16, 36);
-      ctx.fillStyle = isSelected ? "#00e5ff" : "#38bdf8";
-      ctx.font = "bold 8.5px monospace";
-      ctx.fillText("PERSON", pedX - 8, pedY - 7);
+    if (
+      isPhysicalLiveCam &&
+      liveStreamImgRef.current &&
+      liveStreamImgRef.current.complete &&
+      liveStreamImgRef.current.naturalWidth > 0
+    ) {
+      try {
+        ctx.drawImage(liveStreamImgRef.current, 0, 0, w, h);
+        drewRealFrame = true;
+      } catch (e) {
+        drewRealFrame = false;
+      }
     }
 
-    // Subtle scanline texture
-    ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
-    for (let y = 0; y < h; y += 4) {
-      ctx.fillRect(0, y, w, 1.5);
+    if (!drewRealFrame) {
+      // Dark security background distinct per camera type / index
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+      const camIdx = camInfo.index || 0;
+      if (camInfo.previewType === "traffic") {
+        bgGrad.addColorStop(0, "#08101e");
+        bgGrad.addColorStop(0.6, "#111d33");
+        bgGrad.addColorStop(1, "#09101f");
+      } else if (camInfo.previewType === "warehouse" || camInfo.previewType === "backyard") {
+        bgGrad.addColorStop(0, "#050912");
+        bgGrad.addColorStop(0.6, "#0c1527");
+        bgGrad.addColorStop(1, "#060b17");
+      } else if (camInfo.previewType === "gate") {
+        bgGrad.addColorStop(0, "#07111a");
+        bgGrad.addColorStop(0.6, "#0f202c");
+        bgGrad.addColorStop(1, "#07121b");
+      } else {
+        bgGrad.addColorStop(0, "#070d1a");
+        bgGrad.addColorStop(0.6, "#0f1a30");
+        bgGrad.addColorStop(1, "#080e1b");
+      }
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Unique Dynamic CCTV simulation elements per camera
+      if (camInfo.previewType === "traffic") {
+        ctx.fillStyle = "#0d1524";
+        ctx.beginPath();
+        ctx.moveTo(w * 0.4, h * 0.4);
+        ctx.lineTo(w * 0.6, h * 0.4);
+        ctx.lineTo(w * 0.95, h);
+        ctx.lineTo(w * 0.05, h);
+        ctx.closePath();
+        ctx.fill();
+
+        // Vehicle with bounding box
+        const carOffset = Math.sin(tick * 0.05 + camIdx) * 32;
+        const carX = w * 0.45 + carOffset;
+        const carY = h * 0.58;
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillRect(carX, carY, 72, 40);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(carX + 10, carY + 8, 52, 16);
+
+        // Cyan AI Detection Box
+        ctx.strokeStyle = "#00e5ff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(carX - 6, carY - 6, 84, 52);
+        ctx.fillStyle = "#00e5ff";
+        ctx.font = "bold 15px monospace";
+        ctx.fillText("VEHICLE", carX - 4, carY - 12);
+      } else if (camInfo.previewType === "gate") {
+        // Perimeter Gate Scene
+        ctx.fillStyle = "#1e293b";
+        ctx.fillRect(w * 0.1, h * 0.35, w * 0.8, 12);
+        ctx.fillRect(w * 0.48, h * 0.35, 24, h * 0.55);
+
+        const guardX = w * 0.35 + Math.sin(tick * 0.03 + camIdx) * 18;
+        const guardY = h * 0.55;
+        ctx.fillStyle = "#64748b";
+        ctx.beginPath();
+        ctx.arc(guardX, guardY, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(guardX - 7, guardY + 10, 14, 50);
+
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(guardX - 18, guardY - 8, 36, 74);
+        ctx.fillStyle = "#10b981";
+        ctx.font = "bold 14px monospace";
+        ctx.fillText("SECURITY", guardX - 18, guardY - 14);
+      } else {
+        // Pedestrian scene with distinct phase offset
+        const pedX = w * 0.46 + Math.sin(tick * 0.04 + camIdx * 1.5) * 45;
+        const pedY = h * 0.5;
+        ctx.fillStyle = "#94a3b8";
+        ctx.beginPath();
+        ctx.arc(pedX, pedY, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(pedX - 6, pedY + 10, 12, 48);
+
+        // Detection box
+        ctx.strokeStyle = isSelected ? "#00e5ff" : "#38bdf8";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(pedX - 16, pedY - 8, 32, 72);
+        ctx.fillStyle = isSelected ? "#00e5ff" : "#38bdf8";
+        ctx.font = "bold 14px monospace";
+        ctx.fillText("PERSON", pedX - 16, pedY - 14);
+      }
+    }
+
+    // Active Loitering Detection indicator on Sphere screen
+    if (camInfo.status === "ALERT" || (isSelected && (tick % 60 > 25))) {
+      const dwell = 12 + Math.floor((tick / 30) % 15);
+      ctx.fillStyle = "rgba(220, 38, 38, 0.94)";
+      ctx.fillRect(w * 0.08, h * 0.36, w * 0.84, 38);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 16px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(`⚠️ LOITERING DETECTED: TRK-104 (${dwell}s)`, w * 0.5, h * 0.36 + 25);
+      ctx.textAlign = "left";
     }
 
     // Top Header: REC dot, LIVE badge & Camera ID
-    ctx.fillStyle = "rgba(3, 7, 18, 0.88)";
-    ctx.fillRect(0, 0, w, 26);
+    ctx.fillStyle = "rgba(3, 7, 18, 0.90)";
+    ctx.fillRect(0, 0, w, 40);
 
     // Blinking REC Indicator
     const isBlink = Math.floor(tick / 16) % 2 === 0;
     ctx.fillStyle = isBlink ? "#ef4444" : "#7f1d1d";
     ctx.beginPath();
-    ctx.arc(12, 13, 3.5, 0, Math.PI * 2);
+    ctx.arc(20, 20, 6, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.font = "bold 9px monospace";
+    ctx.font = "bold 15px monospace";
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "left";
-    ctx.fillText("REC", 20, 16);
+    ctx.fillText("REC", 34, 25);
 
     if (isSelected) {
       ctx.fillStyle = "#ef4444";
-      ctx.fillRect(48, 5, 34, 15);
+      ctx.fillRect(80, 8, 54, 24);
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 9px monospace";
-      ctx.fillText("LIVE", 54, 16);
+      ctx.font = "bold 14px monospace";
+      ctx.fillText("LIVE", 90, 25);
     }
 
     // Camera ID
-    ctx.font = "bold 11px monospace";
+    ctx.font = "bold 18px monospace";
     ctx.fillStyle = isSelected ? "#00e5ff" : "#e2e8f0";
     ctx.textAlign = "right";
-    ctx.fillText(camInfo.id, w - 10, 17);
+    ctx.fillText(camInfo.id, w - 16, 26);
 
     // Bottom Footer: Location Name
     ctx.fillStyle = "rgba(3, 7, 18, 0.92)";
-    ctx.fillRect(0, h - 28, w, 28);
+    ctx.fillRect(0, h - 42, w, 42);
 
-    ctx.font = "bold 11px sans-serif";
+    ctx.font = "bold 17px sans-serif";
     ctx.fillStyle = isSelected ? "#00e5ff" : "#f8fafc";
     ctx.textAlign = "left";
-    ctx.fillText(camInfo.name, 10, h - 10);
+    ctx.fillText(camInfo.name, 16, h - 16);
 
-    ctx.font = "bold 9px monospace";
+    ctx.font = "bold 14px monospace";
     ctx.fillStyle = isSelected ? "#00e5ff" : "#64748b";
     ctx.textAlign = "right";
-    ctx.fillText("CLICK TO EXPAND", w - 10, h - 10);
+    ctx.fillText("CLICK TO EXPAND", w - 16, h - 16);
 
-    // Monitor Bezel Border (directly abutting neighbor screens)
+    // Clean, borderless screen: Only show crisp accent outline when selected or hovered
     if (isSelected) {
       ctx.strokeStyle = "#00e5ff";
-      ctx.lineWidth = 6;
-      ctx.strokeRect(0, 0, w, h);
+      ctx.lineWidth = 4.5;
+      ctx.strokeRect(2, 2, w - 4, h - 4);
     } else if (isHovered) {
       ctx.strokeStyle = "#38bdf8";
-      ctx.lineWidth = 4.5;
-      ctx.strokeRect(0, 0, w, h);
-    } else {
-      ctx.strokeStyle = "rgba(30, 41, 59, 0.95)";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(0, 0, w, h);
+      ctx.lineWidth = 3.5;
+      ctx.strokeRect(2, 2, w - 4, h - 4);
     }
   };
 
@@ -381,14 +440,20 @@ export function LiveSphere({
             index: globalScreenIdx,
           };
 
-        // Create dynamic 2D canvas for screen
+        // Create high-resolution dynamic 2D canvas for screen (640x360 HD)
         const canvas = document.createElement("canvas");
-        canvas.width = 320;
-        canvas.height = 200;
+        canvas.width = 640;
+        canvas.height = 360;
         const ctx = canvas.getContext("2d");
 
         const texture = new THREE.CanvasTexture(canvas);
         texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        try {
+          texture.anisotropy = renderer.capabilities.getMaxAnisotropy() || 8;
+        } catch (e) {
+          texture.anisotropy = 4;
+        }
         texture.generateMipmaps = false;
 
         canvasTextures.push({
@@ -399,11 +464,11 @@ export function LiveSphere({
           id: screenDef.id,
         });
 
-        // Exact Spherical Patch Geometry - perfectly sticks to neighbor screens
+        // Exact Spherical Patch Geometry with smooth subdivision
         const patchGeo = new THREE.SphereGeometry(
           sphereRadius,
-          6,
-          6,
+          10,
+          10,
           phiStart,
           phiStep,
           ring.thetaStart,
@@ -482,18 +547,13 @@ export function LiveSphere({
 
     const handlePointerUp = () => {
       if (isDraggingRef.current && !hasMovedRef.current) {
-        // Precise click detected on a screen: POP OUT INTO FULL INSPECTION MODAL
+        // Single Click: Select the camera to view and update the side panel
         raycaster.setFromCamera(mouse, camera3D);
         const intersects = raycaster.intersectObjects(cameraMeshesRef.current);
         if (intersects.length > 0) {
           const clickedCam = intersects[0].object.userData.camera;
-          if (clickedCam) {
-            if (onSelectCameraRef.current) {
-              onSelectCameraRef.current(clickedCam);
-            }
-            if (onPopoutCameraRef.current) {
-              onPopoutCameraRef.current(clickedCam);
-            }
+          if (clickedCam && onSelectCameraRef.current) {
+            onSelectCameraRef.current(clickedCam);
           }
         }
       }
@@ -503,9 +563,32 @@ export function LiveSphere({
       container.style.cursor = "grab";
     };
 
+    const handleDblClick = (e) => {
+      // Double Click: Open camera in full screen pop-out modal
+      const rect = container.getBoundingClientRect();
+      const clickMouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      raycaster.setFromCamera(clickMouse, camera3D);
+      const intersects = raycaster.intersectObjects(cameraMeshesRef.current);
+      if (intersects.length > 0) {
+        const dblClickedCam = intersects[0].object.userData.camera;
+        if (dblClickedCam) {
+          if (onSelectCameraRef.current) {
+            onSelectCameraRef.current(dblClickedCam);
+          }
+          if (onPopoutCameraRef.current) {
+            onPopoutCameraRef.current(dblClickedCam);
+          }
+        }
+      }
+    };
+
     container.addEventListener("pointerdown", handlePointerDown);
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
+    container.addEventListener("dblclick", handleDblClick);
 
     // 7. Resize Handler
     const handleResize = () => {
@@ -550,22 +633,21 @@ export function LiveSphere({
         item.texture.needsUpdate = true;
       }
 
-      // Always update selected and hovered camera every frame
-      if (selectedCamera) {
-        const activeItem = canvasTexturesRef.current.find(
-          (t) => t.id === selectedCamera.id
-        );
+      // Always update live cameras (CAM-02 and selectedCamera) every frame for full 60fps video feed
+      const priorityIds = new Set(["CAM-02", selectedCamera?.id].filter(Boolean));
+      priorityIds.forEach((camId) => {
+        const activeItem = canvasTexturesRef.current.find((t) => t.id === camId);
         if (activeItem) {
           drawCCTVFeed(
             activeItem.ctx,
             activeItem.camInfo,
             tick,
-            true,
-            hoveredCam?.id === activeItem.id
+            selectedCamera?.id === camId,
+            hoveredCam?.id === camId
           );
           activeItem.texture.needsUpdate = true;
         }
-      }
+      });
 
       // Hover / Select screen pop effect
       cameraMeshesRef.current.forEach((mesh) => {
@@ -586,6 +668,7 @@ export function LiveSphere({
       container.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      container.removeEventListener("dblclick", handleDblClick);
       renderer.dispose();
       if (container) container.innerHTML = "";
     };
@@ -685,11 +768,8 @@ export function LiveSphere({
         <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#080d1a]/90 border border-slate-800 backdrop-blur-sm shadow-md">
           <MousePointer className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
           <span className="text-xs text-slate-200 font-normal">
-            Click any screen to{" "}
-            <span className="text-cyan-400 font-semibold">
-              pop out into full view
-            </span>{" "}
-            • Drag to rotate 3D sphere
+            <span className="text-cyan-400 font-semibold">Single Click</span> to select & view in panel •{" "}
+            <span className="text-cyan-400 font-semibold">Double Click</span> for fullscreen • Drag to rotate
           </span>
         </div>
 

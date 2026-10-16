@@ -6,20 +6,24 @@
  * Set VITE_API_URL in your .env file (e.g. VITE_API_URL=http://localhost:8000/api/v1)
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+const BASE_URL =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_URL) ||
+  "http://localhost:8000/api/v1";
 
 class ApiClient {
   constructor(baseUrl) {
     this.baseUrl = baseUrl;
-    this.token = localStorage.getItem("trinetra_auth_token") || null;
+    this.token = typeof localStorage !== "undefined" ? localStorage.getItem("trinetra_auth_token") : null;
   }
 
   setToken(token) {
     this.token = token;
-    if (token) {
-      localStorage.setItem("trinetra_auth_token", token);
-    } else {
-      localStorage.removeItem("trinetra_auth_token");
+    if (typeof localStorage !== "undefined") {
+      if (token) {
+        localStorage.setItem("trinetra_auth_token", token);
+      } else {
+        localStorage.removeItem("trinetra_auth_token");
+      }
     }
   }
 

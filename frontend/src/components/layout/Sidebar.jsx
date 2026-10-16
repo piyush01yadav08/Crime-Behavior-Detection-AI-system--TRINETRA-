@@ -11,12 +11,23 @@ import {
   Settings,
   ShieldCheck,
 } from "lucide-react";
+import { useState, useEffect } from "react";
 import { ALERTS_DATA } from "../../data/alerts";
+import { alertService } from "../../services/alertService";
 
 export function Sidebar({ collapsed, setCollapsed }) {
   const location = useLocation();
+  const [alerts, setAlerts] = useState(ALERTS_DATA);
 
-  const alertCount = ALERTS_DATA.filter((a) => a.status !== "RESOLVED").length;
+  useEffect(() => {
+    alertService.getAlerts().then((data) => {
+      if (Array.isArray(data) && data.length > 0) setAlerts(data);
+    });
+    const unsub = alertService.subscribe((updated) => setAlerts(updated));
+    return unsub;
+  }, []);
+
+  const alertCount = alerts.filter((a) => a.status !== "RESOLVED").length;
 
   const navItems = [
     {

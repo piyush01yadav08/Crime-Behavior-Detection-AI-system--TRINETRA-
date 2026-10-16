@@ -101,3 +101,11 @@ export const ACTIVITY_FEED = [
     iconType: "check"
   }
 ];
+
+export const ACTIVITY_STREAM = ACTIVITY_FEED.map((item) => ({
+  id: item.id,
+  cameraId: item.camera,
+  message: item.description,
+  timestamp: item.time,
+  ...item
+}));

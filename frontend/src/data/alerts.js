@@ -231,3 +231,10 @@ export const SEVERITY_CONFIG = {
     glow: "shadow-[0_0_12px_rgba(16,185,129,0.3)]"
   }
 };
+
+// Ensure normalized confidence (0.0 - 1.0) is present on each alert
+ALERTS_DATA.forEach((alert) => {
+  if (alert.confidence === undefined) {
+    alert.confidence = typeof alert.riskScore === "number" ? Math.min(1, Math.max(0, alert.riskScore / 100)) : 0.85;
+  }
+});

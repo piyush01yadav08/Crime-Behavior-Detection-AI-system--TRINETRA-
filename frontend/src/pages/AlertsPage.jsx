@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ALERTS_DATA } from "../data/alerts";
 import { CAMERAS_DATA } from "../data/cameras";
+import { alertService } from "../services/alertService";
+import { cameraService } from "../services/cameraService";
 import AlertDetailModal from "../components/alerts/AlertDetailModal";
 import Badge, { RiskScoreBadge } from "../components/ui/Badge";
 import Tabs from "../components/ui/Tabs";
@@ -15,13 +17,16 @@ import {
   CheckCircle,
   Clock,
   ExternalLink,
+  Radio,
 } from "lucide-react";
 
 export function AlertsPage() {
   const [searchParams] = useSearchParams();
   const [alerts, setAlerts] = useState(ALERTS_DATA);
+  const [cameras, setCameras] = useState(CAMERAS_DATA);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
 
   // Filter states
   const [activeSeverity, setActiveSeverity] = useState("ALL");
@@ -30,6 +35,42 @@ export function AlertsPage() {
   const [selectedBehavior, setSelectedBehavior] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState("newest"); // "newest" | "highest-risk"
+
+  // Live Alerts & Camera Ingestion
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLiveAlerts = async () => {
+      try {
+        const liveAlerts = await alertService.getAlerts();
+        if (isMounted && Array.isArray(liveAlerts) && liveAlerts.length > 0) {
+          setAlerts(liveAlerts);
+          setIsLiveConnected(true);
+        }
+      } catch (e) {
+        if (isMounted) setIsLiveConnected(false);
+      }
+    };
+
+    fetchLiveAlerts();
+    const alertInterval = setInterval(fetchLiveAlerts, 3000);
+    const unsubAlerts = alertService.subscribe((updated) => {
+      if (isMounted) setAlerts(updated);
+    });
+
+    cameraService.getAll().then((cams) => {
+      if (isMounted && Array.isArray(cams) && cams.length > 0) setCameras(cams);
+    });
+    const unsubCams = cameraService.subscribe((cams) => {
+      if (isMounted) setCameras(cams);
+    });
+
+    return () => {
+      isMounted = false;
+      clearInterval(alertInterval);
+      unsubAlerts();
+      unsubCams();
+    };
+  }, []);
 
   // Open modal if id is passed in searchParams (e.g. from topbar notification)
   useEffect(() => {
@@ -74,7 +115,12 @@ export function AlertsPage() {
       return new Date(b.timestamp) - new Date(a.timestamp);
     });
 
-  const handleStatusChange = (alertId, newStatus, notes) => {
+  const handleStatusChange = async (alertId, newStatus, notes) => {
+    try {
+      await alertService.updateAlertStatus(alertId, newStatus, notes);
+    } catch (e) {
+      // Local fallback
+    }
     setAlerts((prev) =>
       prev.map((item) =>
         item.id === alertId
@@ -124,6 +170,12 @@ export function AlertsPage() {
             <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-red-500/20 text-red-300 border border-red-500/40">
               {alerts.filter((a) => a.status === "NEW").length} UNRESOLVED
             </span>
+            {isLiveConnected && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                <Radio className="w-2.5 h-2.5 animate-pulse text-emerald-400" />
+                LIVE STREAM SYNC
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
             Real-time behavioral anomalies flagged by YOLOv8 and kinetic movement analyzers
@@ -139,14 +191,16 @@ export function AlertsPage() {
                 prev === "newest" ? "highest-risk" : "newest"
               )
             }
-            icon={<ArrowUpDown className="w-3.5 h-3.5 text-cyan-400" />}
           >
-            Sort: {sortOrder === "newest" ? "Newest First" : "Highest Risk"}
+            <ArrowUpDown className="w-3.5 h-3.5 mr-1" />
+            <span>
+              {sortOrder === "newest" ? "Sort: Risk Score" : "Sort: Timestamp"}
+            </span>
           </Button>
         </div>
       </div>
 
-      {/* Filter Tabs & Search Controls */}
+      {/* Filter Toolbar */}
       <div className="space-y-3">
         {/* Severity Tabs */}
         <Tabs
@@ -170,9 +224,9 @@ export function AlertsPage() {
             className="px-3 py-2 rounded-xl bg-[#0a1122] border border-[#1b2b4b] text-xs text-slate-200 focus:outline-none focus:border-cyan-400"
           >
             <option value="ALL">All Cameras</option>
-            {CAMERAS_DATA.map((cam) => (
+            {cameras.map((cam) => (
               <option key={cam.id} value={cam.id}>
-                {cam.id} - {cam.shortName}
+                {cam.id} - {cam.shortName || cam.name}
               </option>
             ))}
           </select>
@@ -198,7 +252,7 @@ export function AlertsPage() {
             className="px-3 py-2 rounded-xl bg-[#0a1122] border border-[#1b2b4b] text-xs text-slate-200 focus:outline-none focus:border-cyan-400"
           >
             <option value="ALL">All Statuses</option>
-            <option value="NEW">New</option>
+            <option value="NEW">New / Unacknowledged</option>
             <option value="ACKNOWLEDGED">Acknowledged</option>
             <option value="ESCALATED">Escalated</option>
             <option value="RESOLVED">Resolved</option>
@@ -206,25 +260,32 @@ export function AlertsPage() {
         </div>
       </div>
 
-      {/* Alerts Table / List */}
-      <div className="glass-panel rounded-2xl border border-[#16274a] overflow-hidden shadow-2xl">
+      {/* Alerts Table */}
+      <div className="glass-panel rounded-2xl border border-[#14223d] overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="border-b border-[#14223d] bg-[#070d1a] text-[11px] font-mono uppercase tracking-wider text-slate-400">
-                <th className="py-3.5 px-4 font-semibold">Alert ID</th>
-                <th className="py-3.5 px-4 font-semibold">Camera / Node</th>
-                <th className="py-3.5 px-4 font-semibold">Location</th>
-                <th className="py-3.5 px-4 font-semibold">Detected Behavior</th>
-                <th className="py-3.5 px-4 font-semibold">Risk Score</th>
-                <th className="py-3.5 px-4 font-semibold">Severity</th>
-                <th className="py-3.5 px-4 font-semibold">Time</th>
-                <th className="py-3.5 px-4 font-semibold">Status</th>
-                <th className="py-3.5 px-4 font-semibold text-right">Action</th>
+              <tr className="bg-[#091224]/80 text-slate-400 font-semibold border-b border-[#14223d] select-none">
+                <th className="py-3 px-4">Alert ID</th>
+                <th className="py-3 px-4">Camera</th>
+                <th className="py-3 px-4">Location</th>
+                <th className="py-3 px-4">Behavior Event</th>
+                <th className="py-3 px-4">Risk</th>
+                <th className="py-3 px-4">Severity</th>
+                <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4">Time</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#121e36] text-xs">
-              {filteredAlerts.length > 0 ? (
+            <tbody className="divide-y divide-[#14223d]/50">
+              {filteredAlerts.length === 0 ? (
+                <tr>
+                  <td colSpan="9" className="py-12 text-center text-slate-400">
+                    <ShieldAlert className="w-8 h-8 mx-auto text-slate-400 mb-2 opacity-50" />
+                    No surveillance alerts match the selected criteria.
+                  </td>
+                </tr>
+              ) : (
                 filteredAlerts.map((alert) => (
                   <tr
                     key={alert.id}
@@ -232,7 +293,7 @@ export function AlertsPage() {
                       setSelectedAlert(alert);
                       setIsModalOpen(true);
                     }}
-                    className="hover:bg-[#0d172e] transition-colors cursor-pointer group"
+                    className="hover:bg-cyan-500/5 transition-colors cursor-pointer group"
                   >
                     <td className="py-3 px-4 font-mono font-bold text-cyan-400">
                       {alert.id}
@@ -270,52 +331,69 @@ export function AlertsPage() {
                         {alert.severity}
                       </Badge>
                     </td>
-                    <td className="py-3 px-4 font-mono text-slate-400">
-                      {alert.timeFormatted}
-                    </td>
                     <td className="py-3 px-4">
                       <span
-                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
                           alert.status === "NEW"
-                            ? "bg-red-500/20 text-red-300 border border-red-500/30 animate-pulse"
+                            ? "bg-red-500/10 text-red-400 border border-red-500/30"
                             : alert.status === "ACKNOWLEDGED"
-                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                            ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
                             : alert.status === "ESCALATED"
-                            ? "bg-orange-500/20 text-orange-300 border border-orange-500/30"
-                            : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                            ? "bg-purple-500/10 text-purple-400 border border-purple-500/30"
+                            : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
                         }`}
                       >
                         {alert.status}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedAlert(alert);
-                          setIsModalOpen(true);
-                        }}
-                        className="p-1.5 rounded-lg bg-[#0f1b34] text-cyan-400 group-hover:text-white group-hover:bg-cyan-500/30 border border-[#1b2f57] transition-all"
-                        title="View Dossier"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </button>
+                    <td className="py-3 px-4 font-mono text-slate-400 whitespace-nowrap">
+                      {alert.timeFormatted || alert.timestamp}
+                    </td>
+                    <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {alert.status === "NEW" && (
+                          <Button
+                            variant="secondary"
+                            size="xs"
+                            onClick={() =>
+                              handleStatusChange(alert.id, "ACKNOWLEDGED")
+                            }
+                          >
+                            Ack
+                          </Button>
+                        )}
+                        {alert.status !== "RESOLVED" && (
+                          <Button
+                            variant="success"
+                            size="xs"
+                            onClick={() =>
+                              handleStatusChange(alert.id, "RESOLVED")
+                            }
+                          >
+                            Resolve
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => {
+                            setSelectedAlert(alert);
+                            setIsModalOpen(true);
+                          }}
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-300" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))
-              ) : (
-                <tr>
-                  <td colSpan="9" className="text-center py-10 text-slate-500">
-                    No surveillance alerts match the selected criteria.
-                  </td>
-                </tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Alert Dossier Modal */}
+      {/* Incident Detail Modal */}
       <AlertDetailModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

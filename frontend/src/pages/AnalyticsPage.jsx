@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ANALYTICS_METRICS,
   ALERTS_OVER_TIME,
@@ -7,6 +7,7 @@ import {
   CAMERA_INCIDENTS,
   LOCATION_DISTRIBUTION,
 } from "../data/analytics";
+import { analyticsService } from "../services/analyticsService";
 import {
   AreaChart,
   Area,
@@ -32,10 +33,17 @@ import {
   TrendingUp,
   ShieldCheck,
   Flame,
+  Radio,
 } from "lucide-react";
 
 export function AnalyticsPage() {
   const [timeframe, setTimeframe] = useState("24h");
+  const [metrics, setMetrics] = useState(ANALYTICS_METRICS);
+  const [hourlyData, setHourlyData] = useState(ALERTS_OVER_TIME);
+  const [behaviors, setBehaviors] = useState(BEHAVIOR_DISTRIBUTION);
+  const [riskDistribution, setRiskDistribution] = useState(RISK_LEVEL_DISTRIBUTION);
+  const [cameraIncidents, setCameraIncidents] = useState(CAMERA_INCIDENTS);
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
 
   const timeframeTabs = [
     { id: "today", label: "Today" },
@@ -43,6 +51,41 @@ export function AnalyticsPage() {
     { id: "7d", label: "7 Days" },
     { id: "30d", label: "30 Days" },
   ];
+
+  // Load live analytics from backend services
+  useEffect(() => {
+    let isMounted = true;
+    const fetchAnalytics = async () => {
+      try {
+        const [m, h, b, r, c] = await Promise.all([
+          analyticsService.getMetrics(),
+          analyticsService.getAlertsOverTime(timeframe),
+          analyticsService.getBehaviorDistribution(),
+          analyticsService.getRiskDistribution(),
+          analyticsService.getCameraIncidents(),
+        ]);
+        if (isMounted) {
+          if (m && typeof m.totalEvents === "number") {
+            setMetrics(m);
+            setIsLiveConnected(true);
+          }
+          if (Array.isArray(h) && h.length > 0) setHourlyData(h);
+          if (Array.isArray(b) && b.length > 0) setBehaviors(b);
+          if (Array.isArray(r) && r.length > 0) setRiskDistribution(r);
+          if (Array.isArray(c) && c.length > 0) setCameraIncidents(c);
+        }
+      } catch (e) {
+        if (isMounted) setIsLiveConnected(false);
+      }
+    };
+
+    fetchAnalytics();
+    const interval = setInterval(fetchAnalytics, 10000); // 10s live metrics polling
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [timeframe]);
 
   // Custom Dark Cyber Tooltip for Recharts
   const CustomTooltip = ({ active, payload, label }) => {
@@ -78,6 +121,12 @@ export function AnalyticsPage() {
             <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
               AI ENGINE TELEMETRY
             </span>
+            {isLiveConnected && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                <Radio className="w-2.5 h-2.5 animate-pulse text-emerald-400" />
+                LIVE METRICS
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
             Statistical behavioral aggregations, incident velocity, and risk modeling distributions
@@ -101,7 +150,7 @@ export function AnalyticsPage() {
             <Activity className="w-4 h-4 text-cyan-400" />
           </div>
           <p className="text-2xl font-mono font-black text-white">
-            {ANALYTICS_METRICS.totalEvents.toLocaleString()}
+            {metrics.totalEvents.toLocaleString()}
           </p>
           <span className="text-[10px] font-mono text-emerald-400">
             +12.4% vs prev period
@@ -116,7 +165,7 @@ export function AnalyticsPage() {
             <Flame className="w-4 h-4 text-red-400" />
           </div>
           <p className="text-2xl font-mono font-black text-red-400">
-            {ANALYTICS_METRICS.criticalEvents}
+            {metrics.criticalEvents}
           </p>
           <span className="text-[10px] font-mono text-red-300">
             Immediate SOP required
@@ -131,10 +180,10 @@ export function AnalyticsPage() {
             <Video className="w-4 h-4 text-emerald-400" />
           </div>
           <p className="text-2xl font-mono font-black text-white">
-            {ANALYTICS_METRICS.activeCameras} / {ANALYTICS_METRICS.totalCameras}
+            {metrics.activeCameras} / {metrics.totalCameras}
           </p>
           <span className="text-[10px] font-mono text-slate-400">
-            99.85% Uptime
+            {metrics.systemUptime || "99.85%"} Uptime
           </span>
         </div>
 
@@ -146,7 +195,7 @@ export function AnalyticsPage() {
             <Users className="w-4 h-4 text-blue-400" />
           </div>
           <p className="text-2xl font-mono font-black text-white">
-            {ANALYTICS_METRICS.trackedPersonsToday}
+            {metrics.trackedPersonsToday}
           </p>
           <span className="text-[10px] font-mono text-cyan-300">
             Unique DeepSORT trajectories
@@ -161,7 +210,7 @@ export function AnalyticsPage() {
             <Percent className="w-4 h-4 text-amber-400" />
           </div>
           <p className="text-2xl font-mono font-black text-amber-400">
-            {ANALYTICS_METRICS.avgRiskScore}
+            {metrics.avgRiskScore}
           </p>
           <span className="text-[10px] font-mono text-slate-400">
             Severity threshold: 70+
@@ -187,7 +236,7 @@ export function AnalyticsPage() {
 
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={ALERTS_OVER_TIME}>
+              <AreaChart data={hourlyData}>
                 <defs>
                   <linearGradient id="colorCritical" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8}/>
@@ -221,14 +270,14 @@ export function AnalyticsPage() {
             Risk Classification Ratio
           </h3>
           <p className="text-xs text-slate-400 mb-3">
-            Proportion across 1,420 total surveillance events
+            Proportion across {metrics.totalEvents.toLocaleString()} total surveillance events
           </p>
 
           <div className="h-56 w-full flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={RISK_LEVEL_DISTRIBUTION}
+                  data={riskDistribution}
                   cx="50%"
                   cy="50%"
                   innerRadius={60}
@@ -236,7 +285,7 @@ export function AnalyticsPage() {
                   paddingAngle={4}
                   dataKey="value"
                 >
-                  {RISK_LEVEL_DISTRIBUTION.map((entry, index) => (
+                  {riskDistribution.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} stroke="#050811" strokeWidth={2} />
                   ))}
                 </Pie>
@@ -246,7 +295,7 @@ export function AnalyticsPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 mt-2">
-            {RISK_LEVEL_DISTRIBUTION.map((item) => (
+            {riskDistribution.map((item) => (
               <div key={item.name} className="flex items-center gap-2 text-xs font-mono">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                 <span className="text-slate-300">{item.name}:</span>
@@ -270,13 +319,13 @@ export function AnalyticsPage() {
 
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart layout="vertical" data={BEHAVIOR_DISTRIBUTION} margin={{ left: 20 }}>
+              <BarChart layout="vertical" data={behaviors} margin={{ left: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#132039" horizontal={false} />
                 <XAxis type="number" stroke="#475569" fontSize={11} fontFamily="monospace" />
                 <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={10} width={130} />
                 <Tooltip content={<CustomTooltip />} />
                 <Bar dataKey="count" name="Count" radius={[0, 4, 4, 0]}>
-                  {BEHAVIOR_DISTRIBUTION.map((entry, index) => (
+                  {behaviors.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Bar>
@@ -296,7 +345,7 @@ export function AnalyticsPage() {
 
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={CAMERA_INCIDENTS}>
+              <BarChart data={cameraIncidents} margin={{ bottom: 30 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#132039" vertical={false} />
                 <XAxis dataKey="camera" stroke="#475569" fontSize={9} interval={0} angle={-20} textAnchor="end" height={60} />
                 <YAxis stroke="#475569" fontSize={11} fontFamily="monospace" />

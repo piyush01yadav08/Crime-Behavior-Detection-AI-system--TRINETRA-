@@ -124,3 +124,13 @@ export const PERSONS_DATA = [
     ]
   }
 ];
+
+// Ensure id and trajectory fields are mapped for consistency with test suites
+PERSONS_DATA.forEach((person) => {
+  if (!person.id) {
+    person.id = person.trackingId;
+  }
+  if (!person.trajectory) {
+    person.trajectory = person.trajectoryPath;
+  }
+});

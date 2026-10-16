@@ -1,0 +1,1 @@
+# TRINETRA Backend Django Project

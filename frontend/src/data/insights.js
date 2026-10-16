@@ -119,3 +119,6 @@ export const INSIGHTS_DATA = {
     }
   ]
 };
+
+// Aliases for anomalies
+INSIGHTS_DATA.anomalies = INSIGHTS_DATA.unusualActivity;

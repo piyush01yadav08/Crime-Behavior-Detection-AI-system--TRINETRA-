@@ -1,7 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { PERSONS_DATA } from "../data/persons";
 import { CAMERAS_DATA } from "../data/cameras";
 import { ALERTS_DATA } from "../data/alerts";
+import { cameraService } from "../services/cameraService";
+import { alertService } from "../services/alertService";
+import { api } from "../services/api";
 import SearchInput from "../components/ui/SearchInput";
 import Badge, { RiskScoreBadge } from "../components/ui/Badge";
 import Button from "../components/ui/Button";
@@ -21,11 +24,35 @@ import {
 export function SearchPage() {
   const [query, setQuery] = useState("TRK-102");
   const [categoryFilter, setCategoryFilter] = useState("ALL"); // ALL, PERSONS, CAMERAS, ALERTS
+  const [cameras, setCameras] = useState(CAMERAS_DATA);
+  const [alerts, setAlerts] = useState(ALERTS_DATA);
+  const [persons, setPersons] = useState(PERSONS_DATA);
+
+  useEffect(() => {
+    cameraService.getAll().then((list) => {
+      if (Array.isArray(list) && list.length > 0) setCameras(list);
+    });
+    alertService.getAlerts().then((list) => {
+      if (Array.isArray(list) && list.length > 0) setAlerts(list);
+    });
+    api
+      .get("/persons/")
+      .then((list) => {
+        if (Array.isArray(list) && list.length > 0) setPersons(list);
+      })
+      .catch(() => {});
+    const unsubCams = cameraService.subscribe((list) => setCameras(list));
+    const unsubAlerts = alertService.subscribe((list) => setAlerts(list));
+    return () => {
+      unsubCams();
+      unsubAlerts();
+    };
+  }, []);
 
   const q = query.trim().toLowerCase();
 
   // Search across persons
-  const matchedPersons = PERSONS_DATA.filter((p) => {
+  const matchedPersons = persons.filter((p) => {
     if (!q) return true;
     return (
       p.trackingId.toLowerCase().includes(q) ||
@@ -36,7 +63,7 @@ export function SearchPage() {
   });
 
   // Search across cameras
-  const matchedCameras = CAMERAS_DATA.filter((c) => {
+  const matchedCameras = cameras.filter((c) => {
     if (!q) return true;
     return (
       c.id.toLowerCase().includes(q) ||
@@ -47,7 +74,7 @@ export function SearchPage() {
   });
 
   // Search across alerts
-  const matchedAlerts = ALERTS_DATA.filter((a) => {
+  const matchedAlerts = alerts.filter((a) => {
     if (!q) return true;
     return (
       a.id.toLowerCase().includes(q) ||

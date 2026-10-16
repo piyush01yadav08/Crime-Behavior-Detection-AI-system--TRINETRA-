@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { CAMERAS_DATA } from "../data/cameras";
+import { cameraService } from "../services/cameraService";
 import LiveSphere from "../components/sphere/LiveSphere";
 import CameraGrid from "../components/camera/CameraGrid";
 import LiveFeedPanel from "../components/camera/LiveFeedPanel";
@@ -13,9 +14,19 @@ import TrackObjectModal from "../components/camera/TrackObjectModal";
 import { Globe, LayoutGrid } from "lucide-react";
 
 export function DashboardPage() {
-  const [cameras] = useState(CAMERAS_DATA);
+  const [cameras, setCameras] = useState(CAMERAS_DATA);
   const [selectedCamera, setSelectedCamera] = useState(CAMERAS_DATA[0]); // CAM-02 featured
   const [viewMode, setViewMode] = useState("sphere"); // "sphere" or "grid"
+
+  useEffect(() => {
+    cameraService.getAll().then((list) => {
+      if (list && list.length > 0) setCameras(list);
+    });
+    const unsubscribe = cameraService.subscribe((updatedList) => {
+      setCameras(updatedList);
+    });
+    return unsubscribe;
+  }, []);
   
   // Modals state
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
@@ -44,7 +55,7 @@ export function DashboardPage() {
             Surveillance Operations
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
-            Active multi-stream monitoring • 12 Authorized nodes online
+            Active multi-stream monitoring • {cameras.length} Authorized nodes ({cameras.filter((c) => c.status !== "OFFLINE").length} online)
           </p>
         </div>
 

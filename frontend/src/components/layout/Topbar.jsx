@@ -8,13 +8,23 @@ import {
   Sliders,
 } from "lucide-react";
 import { ALERTS_DATA } from "../../data/alerts";
+import { alertService } from "../../services/alertService";
 
 export function Topbar() {
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [alerts, setAlerts] = useState(ALERTS_DATA);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    alertService.getAlerts().then((data) => {
+      if (Array.isArray(data) && data.length > 0) setAlerts(data);
+    });
+    const unsub = alertService.subscribe((updated) => setAlerts(updated));
+    return unsub;
+  }, []);
 
   // Clock live update
   useEffect(() => {
@@ -43,7 +53,7 @@ export function Topbar() {
     return () => clearInterval(timer);
   }, []);
 
-  const unreadAlerts = ALERTS_DATA.filter((a) => a.status === "NEW");
+  const unreadAlerts = alerts.filter((a) => a.status === "NEW");
 
   return (
     <header className="h-14 px-6 border-b border-slate-800/80 bg-[#060a14]/95 backdrop-blur-md flex items-center justify-between sticky top-0 z-30 select-none">
