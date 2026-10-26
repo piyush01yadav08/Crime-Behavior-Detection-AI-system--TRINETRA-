@@ -20,6 +20,9 @@ build/
 *.db-wal
 *.db-shm
 *.log
+*.part
+*.tmp
+test_cam.jpg
 
 # Node dependencies & builds
 node_modules/

@@ -6,6 +6,7 @@ import { Video, ShieldAlert, Radio, RefreshCw, AlertTriangle, Camera, Eye } from
  * CameraStreamView Component
  * Renders:
  * 1. Backend AI MJPEG stream (YOLOv8 + DeepSORT + OpenCV loitering detector)
+ *    Supports physical webcam or server-side simulated CCTV mode.
  * 2. Direct Browser WebRTC Webcam (instant live physical camera access)
  * 3. Autonomous Simulated CCTV scene with moving pedestrians & loitering analysis
  */
@@ -20,6 +21,12 @@ export function CameraStreamView({
 
   // Modes: "backend" | "webrtc" | "simulated"
   const [feedMode, setFeedMode] = useState(isPhysicalCam ? "backend" : "simulated");
+  const [backendMode, setBackendMode] = useState("webcam"); // "webcam" | "simulated"
+  const [cameraHealth, setCameraHealth] = useState(null);
+  const [isSwitchingMode, setIsSwitchingMode] = useState(false);
+  const [modeNotice, setModeNotice] = useState(null);
+  const [streamEpoch, setStreamEpoch] = useState(Date.now());
+
   const [frameTick, setFrameTick] = useState(0);
   const [streamError, setStreamError] = useState(false);
   const [loiteringAlert, setLoiteringAlert] = useState(null);
@@ -30,10 +37,21 @@ export function CameraStreamView({
   const videoRef = useRef(null);
   const streamRef = useRef(null);
 
-  // Sync mode whenever active camera changes (e.g. clicking another camera on the sphere)
+  // Sync mode whenever active camera changes
   useEffect(() => {
     setFeedMode(isPhysicalCam ? "backend" : "simulated");
     setStreamError(false);
+    setStreamEpoch(Date.now());
+    if (isPhysicalCam) {
+      streamService.getStreamMode().then((res) => {
+        if (res && res.mode) {
+          setBackendMode(res.mode);
+        }
+        if (res && res.camera) {
+          setCameraHealth(res.camera);
+        }
+      });
+    }
   }, [camera?.id, isPhysicalCam]);
 
   const streamUrl = streamService.getStreamUrl(camera?.id || "CAM-02");
@@ -121,6 +139,43 @@ export function CameraStreamView({
     setTimeout(() => setLoiteringAlert(null), 8000);
   };
 
+  const handleSwitchMode = async (targetMode) => {
+    if (isSwitchingMode) return;
+    setIsSwitchingMode(true);
+    setModeNotice(null);
+
+    if (targetMode === "webrtc") {
+      setFeedMode("webrtc");
+      setIsSwitchingMode(false);
+      return;
+    }
+
+    if (targetMode === "simulated_local") {
+      setFeedMode("simulated");
+      setIsSwitchingMode(false);
+      return;
+    }
+
+    // Target is backend mode: "webcam" or "simulated"
+    const res = await streamService.setStreamMode(targetMode);
+    if (res && res.status === "success") {
+      setBackendMode(res.mode || targetMode);
+      if (res.camera) {
+        setCameraHealth(res.camera);
+      }
+      setStreamError(false);
+      setStreamEpoch(Date.now());
+      setFeedMode("backend");
+    } else {
+      console.warn(`Mode switch to ${targetMode} failed:`, res);
+      setModeNotice(`Backend mode switch failed. Check server status.`);
+      if (targetMode === "simulated") {
+        setFeedMode("simulated");
+      }
+    }
+    setIsSwitchingMode(false);
+  };
+
   const renderSimulatedScene = () => {
     const pType = camera?.previewType || "traffic";
     const camName = camera?.shortName || camera?.name || "SURVEILLANCE NODE";
@@ -130,18 +185,15 @@ export function CameraStreamView({
         <svg viewBox="0 0 640 360" className="w-full h-full object-cover">
           <rect width="640" height="360" fill="#080f1a" />
           <rect x="0" y="220" width="640" height="140" fill="#0f192b" />
-          {/* Gate barrier & security checkpoint */}
           <line x1="80" y1="230" x2="560" y2="230" stroke="#334155" strokeWidth="6" />
           <rect x="290" y="160" width="60" height="90" fill="#1e293b" stroke="#475569" strokeWidth="2" />
           <text x="300" y="185" fill="#38bdf8" fontSize="10" fontFamily="monospace" fontWeight="bold">BOOTH A</text>
-          {/* Security Guard */}
           <g transform={`translate(${160 + offset * 0.8}, 210)`}>
             <circle cx="12" cy="8" r="7" fill="#10b981" />
             <rect x="4" y="16" width="16" height="42" fill="#10b981" />
             <rect x="-2" y="12" width="28" height="50" fill="none" stroke="#10b981" strokeWidth="1.5" />
             <text x="-4" y="6" fill="#10b981" fontSize="8" fontFamily="monospace">SECURITY</text>
           </g>
-          {/* Entering Vehicle */}
           <g transform={`translate(${410 - offset * 2}, 235)`}>
             <rect x="0" y="0" width="90" height="44" fill="#64748b" />
             <rect x="12" y="8" width="65" height="18" fill="#1e293b" />
@@ -159,12 +211,10 @@ export function CameraStreamView({
       return (
         <svg viewBox="0 0 640 360" className="w-full h-full object-cover">
           <rect width="640" height="360" fill="#060b17" />
-          {/* Perspective corridor */}
           <polygon points="180,100 460,100 640,360 0,360" fill="#0d1526" />
           <line x1="180" y1="100" x2="0" y2="360" stroke="#1e293b" strokeWidth="2" />
           <line x1="460" y1="100" x2="640" y2="360" stroke="#1e293b" strokeWidth="2" />
           <line x1="320" y1="100" x2="320" y2="360" stroke="#334155" strokeWidth="1" strokeDasharray="8 8" />
-          {/* Staff Member */}
           <g transform={`translate(${280 + offset}, 180)`}>
             <circle cx="12" cy="8" r="6" fill="#38bdf8" />
             <rect x="6" y="15" width="12" height="38" fill="#38bdf8" />
@@ -237,12 +287,19 @@ export function CameraStreamView({
     );
   }
 
+  const isCameraDarkOrUnusable =
+    feedMode === "backend" &&
+    backendMode === "webcam" &&
+    cameraHealth &&
+    (!cameraHealth.is_usable || cameraHealth.status === "unusable");
+
   return (
     <div className={`relative w-full h-full min-h-[190px] bg-[#050811] overflow-hidden select-none group flex flex-col justify-center items-center ${className}`}>
       {/* 1. Backend AI Stream Mode */}
       {feedMode === "backend" && !streamError && (
         <img
-          src={streamUrl}
+          key={`${streamUrl}-${backendMode}-${streamEpoch}`}
+          src={`${streamUrl}?mode=${backendMode}&t=${streamEpoch}`}
           alt={`Live Feed ${camera?.id || "CAM-02"}`}
           className="w-full h-full object-cover"
           onError={() => {
@@ -274,7 +331,6 @@ export function CameraStreamView({
               </button>
             </div>
           )}
-          {/* WebRTC In-Canvas Loitering Simulation Marker */}
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             <div className="w-48 h-64 border-2 border-emerald-400/80 rounded relative">
               <div className="absolute -top-5 left-0 bg-emerald-500 text-black text-[9px] font-mono font-bold px-1.5 py-0.5 rounded">
@@ -288,15 +344,50 @@ export function CameraStreamView({
         </div>
       )}
 
-      {/* 3. Fallback / CCTV Simulation Mode */}
+      {/* Fallback / CCTV Simulation Mode */}
       {(feedMode === "simulated" || (feedMode === "backend" && streamError)) && (
         renderSimulatedScene()
+      )}
+
+      {/* Stream Error Notice with Retry */}
+      {feedMode === "backend" && streamError && (
+        <div className="absolute top-9 left-2 right-2 bg-red-950/90 border border-red-500/80 text-red-200 text-[10px] font-mono px-2.5 py-1 rounded shadow-lg flex items-center justify-between z-20">
+          <div className="flex items-center gap-1.5 overflow-hidden">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+            <span className="truncate">BACKEND STREAM DISCONNECTED (SHOWING SIMULATED CCTV)</span>
+          </div>
+          <button
+            onClick={() => handleSwitchMode(backendMode)}
+            className="shrink-0 ml-2 bg-red-500/30 hover:bg-red-500/50 text-red-100 text-[9px] font-mono px-2 py-0.5 rounded border border-red-400/40 flex items-center gap-1 transition-colors"
+          >
+            <RefreshCw className="w-2.5 h-2.5" />
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Camera Sensor Obstructed / Unusable Banner */}
+      {isCameraDarkOrUnusable && (
+        <div className="absolute top-9 left-2 right-2 bg-amber-950/90 border border-amber-500/80 text-amber-200 text-[10px] font-mono px-2.5 py-1 rounded shadow-lg flex items-center justify-between z-20">
+          <div className="flex items-center gap-1.5 overflow-hidden">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="truncate">
+              CAMERA SENSOR DARK / UNUSABLE — CHECK PHYSICAL SHUTTER
+            </span>
+          </div>
+          <button
+            onClick={() => handleSwitchMode("simulated")}
+            className="shrink-0 ml-2 bg-amber-500/30 hover:bg-amber-500/50 text-amber-100 text-[9px] font-mono px-2 py-0.5 rounded border border-amber-400/40 transition-colors"
+          >
+            Switch to Sim CCTV
+          </button>
+        </div>
       )}
 
       {/* Loitering Alert Banner */}
       {(loiteringAlert || camera?.status === "ALERT") && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 bg-red-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-lg border border-red-400 animate-pulse">
-          <AlertTriangle className="w-3 h-3 shrink-0" />
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
           <span>LOITERING DETECTED: {loiteringAlert?.id || "TRK-104"} (Dwell Exceeded)</span>
         </div>
       )}
@@ -312,7 +403,9 @@ export function CameraStreamView({
             </span>
             <span className="text-[9px] font-mono bg-cyan-950/90 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-800">
               {feedMode === "backend" && !streamError
-                ? "AI BACKEND FEED"
+                ? backendMode === "simulated"
+                  ? "AI SIMULATED FEED"
+                  : "AI WEBCAM FEED"
                 : feedMode === "webrtc"
                 ? "WEBRTC WEBCAM"
                 : "CCTV SIMULATION"}
@@ -322,27 +415,26 @@ export function CameraStreamView({
           {/* Top Right: Mode Selection Buttons */}
           <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
             <button
-              onClick={() => {
-                setStreamError(false);
-                setFeedMode("backend");
-              }}
+              onClick={() => handleSwitchMode("webcam")}
+              disabled={isSwitchingMode}
               className={`text-[9px] font-mono px-2 py-0.5 rounded border transition-colors ${
-                feedMode === "backend" && !streamError
+                feedMode === "backend" && backendMode === "webcam" && !streamError
                   ? "bg-cyan-500/20 text-cyan-300 border-cyan-400"
                   : "bg-black/70 text-slate-400 border-white/10 hover:text-white"
-              }`}
-              title="Stream from Python Backend AI (OpenCV + YOLO)"
+              } ${isSwitchingMode ? "opacity-50 cursor-not-allowed" : ""}`}
+              title="Stream from Python Backend AI (OpenCV + YOLO using physical camera)"
             >
               Backend Stream
             </button>
 
             <button
-              onClick={() => setFeedMode("webrtc")}
+              onClick={() => handleSwitchMode("webrtc")}
+              disabled={isSwitchingMode}
               className={`text-[9px] font-mono px-2 py-0.5 rounded border transition-colors flex items-center gap-1 ${
                 feedMode === "webrtc"
                   ? "bg-emerald-500/20 text-emerald-300 border-emerald-400"
                   : "bg-black/70 text-slate-400 border-white/10 hover:text-white"
-              }`}
+              } ${isSwitchingMode ? "opacity-50 cursor-not-allowed" : ""}`}
               title="Activate Browser WebRTC Camera directly"
             >
               <Camera className="w-2.5 h-2.5" />
@@ -350,19 +442,21 @@ export function CameraStreamView({
             </button>
 
             <button
-              onClick={() => setFeedMode("simulated")}
+              onClick={() => handleSwitchMode("simulated")}
+              disabled={isSwitchingMode}
               className={`text-[9px] font-mono px-2 py-0.5 rounded border transition-colors ${
-                feedMode === "simulated" || streamError
+                (feedMode === "backend" && backendMode === "simulated" && !streamError) ||
+                feedMode === "simulated"
                   ? "bg-amber-500/20 text-amber-300 border-amber-400"
                   : "bg-black/70 text-slate-400 border-white/10 hover:text-white"
-              }`}
-              title="Use CCTV Simulation"
+              } ${isSwitchingMode ? "opacity-50 cursor-not-allowed" : ""}`}
+              title="Stream from Python Backend AI in Simulated CCTV mode"
             >
               Sim CCTV
             </button>
           </div>
 
-          {/* Bottom Bar: Loitering Detection status and test alert button */}
+          {/* Bottom Bar */}
           <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between z-10 pointer-events-auto">
             <div className="flex items-center gap-1.5">
               <span className="text-[9px] font-mono bg-amber-950/80 text-amber-300 border border-amber-700/80 px-2 py-0.5 rounded flex items-center gap-1">

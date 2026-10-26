@@ -30,10 +30,11 @@ class StreamService {
     }
   }
 
-  async getAiStatus() {
+  async getStreamMode() {
     try {
-      return await api.get("/ai/status");
+      return await api.get("/stream/mode");
     } catch (e) {
+      console.warn("Could not get stream mode from backend:", e);
       return null;
     }
   }
@@ -43,13 +44,21 @@ class StreamService {
       return await api.post("/stream/mode", { mode });
     } catch (e) {
       console.warn("Could not set stream mode on backend:", e);
-      return { mode };
+      return null;
+    }
+  }
+
+  async getAiStatus() {
+    try {
+      return await api.get("/stream/ai/status");
+    } catch (e) {
+      return null;
     }
   }
 
   async updateLoiteringSettings(distanceThreshold, timeThreshold) {
     try {
-      return await api.post("/ai/loitering/settings", {
+      return await api.post("/stream/ai/loitering/settings", {
         distanceThreshold,
         timeThreshold,
       });
@@ -61,7 +70,7 @@ class StreamService {
 
   async triggerLoiteringDemo() {
     try {
-      return await api.post("/ai/trigger-loitering-demo", {});
+      return await api.post("/stream/ai/trigger-loitering-demo", {});
     } catch (e) {
       console.warn("Could not trigger demo loitering alert:", e);
       return null;
